@@ -20,6 +20,8 @@ Use this skill when the user asks for international news, world news, or today's
 
 A bash script fetches Google News RSS feeds and extracts article titles. It needs `curl` and standard text tools (`grep`, `sed`). The assistant then organizes the headlines into a user-facing summary grouped by topic.
 
+The script creates its temporary file robustly: it tries `$TMPDIR`, then `/tmp`, then the script's own directory, so it works even on systems where `/tmp` is missing or unwritable (e.g. some Termux/Android setups).
+
 ## Steps
 
 ### 1. Fetch the headlines
@@ -28,12 +30,15 @@ Run the fetch script:
 `scripts/fetch_news.sh`
 
 Optional arguments:
-- `--world`: use the world news topic feed (broader geopolitical coverage).
+- `--topic TOPIC`: fetch a specific topic feed. Available topics: `world`, `nation`/`us`, `politics`, `business`/`finance`/`economy`, `tech`/`technology`, `science`, `health`, `sports`, `entertainment`/`culture`.
+- `--world`: use the world news topic feed (broader geopolitical coverage). Equivalent to `--topic world`.
 - `--count N`: show the first N headlines (default 25).
 - Without arguments, it fetches the top stories feed.
 
-Example:
+Examples:
 `scripts/fetch_news.sh --count 20`
+`scripts/fetch_news.sh --topic tech --count 15`
+`scripts/fetch_news.sh --topic politics`
 
 The script prints a numbered list of headlines in the form `N. <Headline> - <Source>`. If the network is unavailable or the feed is empty, it prints an error message and exits non-zero.
 

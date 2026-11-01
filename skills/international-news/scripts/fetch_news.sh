@@ -1,11 +1,29 @@
 #!/usr/bin/env bash
 # Fetch today's international news headlines from Google News RSS.
-# Usage: fetch_news.sh [--world] [--count N]
+# Usage: fetch_news.sh [--topic TOPIC] [--world] [--count N]
 
 set -euo pipefail
 
 COUNT=25
 FEED="https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en"
+
+# Map friendly topic names to Google News topic-section IDs.
+declare -A TOPICS=(
+  [world]=WORLD
+  [nation]=NATION
+  [us]=NATION
+  [politics]=POLITICS
+  [business]=BUSINESS
+  [finance]=BUSINESS
+  [economy]=BUSINESS
+  [tech]=TECHNOLOGY
+  [technology]=TECHNOLOGY
+  [science]=SCIENCE
+  [health]=HEALTH
+  [sports]=SPORTS
+  [entertainment]=ENTERTAINMENT
+  [culture]=ENTERTAINMENT
+)
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -13,19 +31,49 @@ while [[ $# -gt 0 ]]; do
       FEED="https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-US&gl=US&ceid=US:en"
       shift
       ;;
+    --topic)
+      [[ $# -ge 2 ]] || { echo "ERROR: --topic requires a value" >&2; exit 2; }
+      KEY="$(echo "$2" | tr '[:upper:]' '[:lower:]')"
+      if [[ -z "${TOPICS[$KEY]:-}" ]]; then
+        echo "ERROR: unknown topic '$2'" >&2
+        echo "Available topics: ${!TOPICS[*]}" >&2
+        exit 2
+      fi
+      FEED="https://news.google.com/rss/headlines/section/topic/${TOPICS[$KEY]}?hl=en-US&gl=US&ceid=US:en"
+      shift 2
+      ;;
     --count)
       COUNT="$2"
       shift 2
       ;;
     *)
       echo "Unknown option: $1" >&2
-      echo "Usage: fetch_news.sh [--world] [--count N]" >&2
+      echo "Usage: fetch_news.sh [--topic TOPIC] [--world] [--count N]" >&2
       exit 2
       ;;
   esac
 done
 
-TMPFILE="$(mktemp)"
+# Create a temp file robustly. Some environments (e.g. Termux/Android) have no
+# /tmp directory, or it may not be writable, so try several candidate dirs and
+# fall back to the script's own directory or the current working directory.
+TMPFILE=""
+make_temp() {
+  local d f
+  for d in "${TMPDIR:-/tmp}" "$(cd "$(dirname "$0")" && pwd)" "$PWD"; do
+    [[ -d "$d" && -w "$d" ]] || continue
+    if f="$(mktemp "$d/news.XXXXXX" 2>/dev/null)"; then
+      TMPFILE="$f"
+      return 0
+    fi
+  done
+  return 1
+}
+
+if ! make_temp; then
+  echo "ERROR: could not create a temporary file" >&2
+  exit 1
+fi
 trap 'rm -f "$TMPFILE"' EXIT
 
 if ! curl -sL --max-time 20 "$FEED" -o "$TMPFILE"; then
@@ -38,9 +86,18 @@ if [[ ! -s "$TMPFILE" ]]; then
   exit 1
 fi
 
-# Extract <title> tags, skip the first two (feed title and "Google News" label).
-grep -oP '(?<=<title>).*?(?=</title>)' "$TMPFILE" \
+# Extract <title> tags, skipping the feed title and the "Google News" label.
+# 'head' may close the pipe early, triggering SIGPIPE upstream; guard the
+# pipeline so that does not surface as a false failure under 'set -o pipefail'.
+TITLES="$(grep -oP '(?<=<title>).*?(?=</title>)' "$TMPFILE" \
   | sed 's/&amp;/\&/g; s/&quot;/"/g; s/&#39;/'"'"'/g; s/&lt;/</g; s/&gt;/>/g' \
   | tail -n +3 \
   | head -n "$COUNT" \
-  | nl -w2 -s'. '
+  || true)"
+
+if [[ -z "$TITLES" ]]; then
+  echo "ERROR: no headlines found in feed" >&2
+  exit 1
+fi
+
+printf '%s\n' "$TITLES" | nl -w2 -s'. '
