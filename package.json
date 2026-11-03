@@ -1,6 +1,6 @@
 {
   "name": "pi-international-news",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Pi skill: fetch today's international news summary (Google News RSS) with topic filtering.",
   "keywords": ["pi-package", "pi", "skill", "news", "international", "headlines"],
   "license": "MIT",
