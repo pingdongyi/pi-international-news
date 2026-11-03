@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Fetch today's international news headlines from Google News RSS.
-# Usage: fetch_news.sh [--topic TOPIC] [--world] [--count N]
+# Usage: fetch_news.sh [--topic TOPIC] [--world] [--count N] [--attempts N] [--retry-delay S]
 
 set -euo pipefail
 
 COUNT=25
 FEED="https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en"
+ATTEMPTS=3
+RETRY_DELAY=5
 
 # Map friendly topic names to Google News topic-section IDs.
 declare -A TOPICS=(
@@ -46,9 +48,17 @@ while [[ $# -gt 0 ]]; do
       COUNT="$2"
       shift 2
       ;;
+    --attempts)
+      ATTEMPTS="$2"
+      shift 2
+      ;;
+    --retry-delay)
+      RETRY_DELAY="$2"
+      shift 2
+      ;;
     *)
       echo "Unknown option: $1" >&2
-      echo "Usage: fetch_news.sh [--topic TOPIC] [--world] [--count N]" >&2
+      echo "Usage: fetch_news.sh [--topic TOPIC] [--world] [--count N] [--attempts N] [--retry-delay S]" >&2
       exit 2
       ;;
   esac
@@ -76,13 +86,23 @@ if ! make_temp; then
 fi
 trap 'rm -f "$TMPFILE"' EXIT
 
-if ! curl -sL --max-time 20 "$FEED" -o "$TMPFILE"; then
-  echo "ERROR: failed to fetch news feed (network issue?)" >&2
-  exit 1
-fi
+# --- Fetch with retries: a single transient network blip must not kill the summary ---
+ok=0
+for ((i = 1; i <= ATTEMPTS; i++)); do
+  if curl -sL --max-time 20 "$FEED" -o "$TMPFILE" \
+     && [[ -s "$TMPFILE" ]] \
+     && grep -q '<title>' "$TMPFILE"; then
+    ok=1
+    break
+  fi
+  rm -f "$TMPFILE"
+  if [[ $i -lt $ATTEMPTS ]]; then
+    sleep "$RETRY_DELAY"
+  fi
+done
 
-if [[ ! -s "$TMPFILE" ]]; then
-  echo "ERROR: news feed is empty" >&2
+if [[ $ok -eq 0 ]]; then
+  echo "ERROR: failed to fetch news feed (network issue?)" >&2
   exit 1
 fi
 
